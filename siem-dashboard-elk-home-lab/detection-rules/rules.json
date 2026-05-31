@@ -1,0 +1,133 @@
+[
+  {
+    "id": "rule-ssh-bruteforce",
+    "name": "SSH Brute Force",
+    "type": "custom_query",
+    "severity": "high",
+    "risk_score": 73,
+    "interval": "5m",
+    "lookback": "10m",
+    "index_patterns": [
+      "filebeat-*",
+      "logs-*"
+    ],
+    "query_language": "KQL",
+    "query": "event.dataset : (\"system.auth\" or \"auth.log\") and message : (\"Failed password\" or \"authentication failure\" or \"Invalid user\")",
+    "description": "Detect repeated SSH authentication failures that may indicate brute-force attempts.",
+    "false_positives": [
+      "Users mistyping passwords",
+      "Automated health checks using wrong credentials",
+      "Misconfigured scripts"
+    ],
+    "response": [
+      "Identify source IP and target user",
+      "Check for successful login after the failures",
+      "Block or rate-limit the source if confirmed malicious",
+      "Hunt for lateral movement from the same IP"
+    ]
+  },
+  {
+    "id": "rule-fail-then-success",
+    "name": "Multiple Failures Then Success",
+    "type": "eql",
+    "severity": "high",
+    "risk_score": 80,
+    "interval": "5m",
+    "lookback": "15m",
+    "index_patterns": [
+      "filebeat-*",
+      "logs-*"
+    ],
+    "query_language": "EQL",
+    "query": "sequence by user.name, source.ip with maxspan=15m\n  [authentication where event.outcome == \"failure\"]\n  [authentication where event.outcome == \"failure\"]\n  [authentication where event.outcome == \"success\"]",
+    "description": "Detect a suspicious pattern where repeated failures are followed by a success.",
+    "false_positives": [
+      "Users correcting passwords after several failed attempts",
+      "Password manager sync issues"
+    ],
+    "response": [
+      "Validate whether the success is expected",
+      "Check MFA status",
+      "Review interactive session activity after the login",
+      "Reset credentials if compromise is suspected"
+    ]
+  },
+  {
+    "id": "rule-suspicious-sudo",
+    "name": "Suspicious Sudo Usage",
+    "type": "custom_query",
+    "severity": "medium",
+    "risk_score": 55,
+    "interval": "5m",
+    "lookback": "10m",
+    "index_patterns": [
+      "filebeat-*",
+      "logs-*"
+    ],
+    "query_language": "KQL",
+    "query": "event.dataset : (\"system.auth\" or \"auth.log\") and message : (\"sudo:\" or \"COMMAND=\") and not user.name : (\"root\")",
+    "description": "Detect privileged command execution on Linux hosts.",
+    "false_positives": [
+      "Normal admin maintenance",
+      "Automated patching or configuration management"
+    ],
+    "response": [
+      "Confirm whether the user is authorized",
+      "Review the command executed",
+      "Correlate with login origin and time of day",
+      "Escalate if the command is unusual"
+    ]
+  },
+  {
+    "id": "rule-new-user-created",
+    "name": "New Local User Created",
+    "type": "custom_query",
+    "severity": "medium",
+    "risk_score": 60,
+    "interval": "10m",
+    "lookback": "15m",
+    "index_patterns": [
+      "filebeat-*",
+      "logs-*"
+    ],
+    "query_language": "KQL",
+    "query": "event.dataset : (\"system.auth\" or \"auditd\") and message : (\"useradd\" or \"adduser\" or \"new user\")",
+    "description": "Detect creation of a new local account on Linux systems.",
+    "false_positives": [
+      "Admin provisioning a new account",
+      "Lab setup activity"
+    ],
+    "response": [
+      "Identify who created the account",
+      "Review privilege level of the new user",
+      "Check for immediate login activity",
+      "Disable or remove the account if unauthorized"
+    ]
+  },
+  {
+    "id": "rule-log-tampering",
+    "name": "Possible Log Tampering",
+    "type": "eql",
+    "severity": "high",
+    "risk_score": 85,
+    "interval": "10m",
+    "lookback": "20m",
+    "index_patterns": [
+      "filebeat-*",
+      "logs-*"
+    ],
+    "query_language": "EQL",
+    "query": "sequence by host.name with maxspan=20m\n  [any where event.dataset == \"system.syslog\" and message like \"*logrotate*\"]\n  [any where event.dataset == \"system.auth\" and message like \"*removed*\" ]",
+    "description": "Heuristic rule to catch suspicious log file changes or disappearance patterns.",
+    "false_positives": [
+      "Routine log rotation",
+      "System maintenance"
+    ],
+    "response": [
+      "Verify file integrity on the host",
+      "Check whether logging services are still running",
+      "Look for tampering with audit or auth logs",
+      "Preserve evidence before remediation"
+    ]
+  }
+]
