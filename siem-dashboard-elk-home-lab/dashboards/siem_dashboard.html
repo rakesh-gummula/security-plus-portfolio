@@ -1,1 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ELK SIEM Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { background: #0b1220; }
+    .glass { background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(14px); }
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+  </style>
+</head>
+<body class="text-slate-100">
+  <div class="min-h-screen grid-bg">
+    <header class="border-b border-slate-800/80 bg-slate-950/70 sticky top-0 z-10">
+      <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div class="text-xs uppercase tracking-[0.28em] text-cyan-400">ELK Stack SIEM Project</div>
+          <h1 class="text-2xl md:text-3xl font-bold mt-1">Security Monitoring Dashboard</h1>
+          <p class="text-slate-400 text-sm mt-1">Built for Linux auth logs, system logs, and web logs indexed in Elasticsearch.</p>
+        </div>
+        <div class="flex flex-wrap gap-2 items-center">
+          <span id="statusPill" class="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300">Idle</span>
+          <button id="refreshBtn" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition">Refresh</button>
+        </div>
+      </div>
+    </header>
 
+    <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+      <section class="glass border border-slate-800 rounded-2xl p-4 md:p-5 shadow-2xl shadow-black/20">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-4 space-y-3">
+            <label class="block text-sm text-slate-300 mb-1">Elasticsearch URL</label>
+            <input id="esUrl" class="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 outline-none focus:border-cyan-500" value="http://localhost:9200" />
+          </div>
+          <div class="lg:col-span-3 space-y-3">
+            <label class="block text-sm text-slate-300 mb-1">Index Pattern</label>
+            <input id="indexPattern" class="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 outline-none focus:border-cyan-500" value="filebeat-*" />
+          </div>
+          <div class="lg:col-span-2 space-y-3">
+            <label class="block text-sm text-slate-300 mb-1">Time Range</label>
+            <select id="timeRange" class="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 outline-none focus:border-cyan-500">
+              <option value="1h">Last 1 hour</option>
+              <option value="24h" selected>Last 24 hours</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+            </select>
+          </div>
+          <div class="lg:col-span-3 space-y-3">
+            <label class="block text-sm text-slate-300 mb-1">Auth Mode</label>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <input id="apiKey" class="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 outline-none focus:border-cyan-500" placeholder="Base64 API key" />
+              <input id="basicAuth" class="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 outline-none focus:border-cyan-500" placeholder="user:pass (optional)" />
+            </div>
+          </div>
+          <div class="lg:col-span-12 flex flex-wrap gap-3 items-center pt-2">
+            <label class="inline-flex items-center gap-2 text-sm text-slate-300">
+              <input id="autoRefresh" type="checkbox" class="rounded border-slate-600 bg-slate-900" checked />
+              Auto refresh every 60s
+            </label>
+            <span class="text-xs text-slate-500">Tip: for a GitHub demo, use sample data from failed SSH logins and sudo events.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="text-sm text-slate-400">Total Events</div>
+          <div id="totalEvents" class="text-3xl font-bold mt-2">—</div>
+          <div class="text-xs text-slate-500 mt-2">All matched documents in the selected range.</div>
+        </div>
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="text-sm text-slate-400">Failed Auth</div>
+          <div id="failedAuthCount" class="text-3xl font-bold mt-2">—</div>
+          <div class="text-xs text-slate-500 mt-2">Likely brute-force or password mistakes.</div>
+        </div>
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="text-sm text-slate-400">Critical Events</div>
+          <div id="criticalCount" class="text-3xl font-bold mt-2">—</div>
+          <div class="text-xs text-slate-500 mt-2">High-severity logs and alerts.</div>
+        </div>
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="text-sm text-slate-400">Unique Users</div>
+          <div id="uniqueUsers" class="text-3xl font-bold mt-2">—</div>
+          <div class="text-xs text-slate-500 mt-2">Usernames observed in the range.</div>
+        </div>
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="text-sm text-slate-400">Unique Source IPs</div>
+          <div id="uniqueIps" class="text-3xl font-bold mt-2">—</div>
+          <div class="text-xs text-slate-500 mt-2">Remote addresses seen in logs.</div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-lg font-semibold">Event Volume Over Time</h2>
+              <p class="text-xs text-slate-400">Timeline of all matching events.</p>
+            </div>
+          </div>
+          <div class="h-80">
+            <canvas id="timelineChart"></canvas>
+          </div>
+        </div>
+
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-lg font-semibold">Failed Logins by User</h2>
+              <p class="text-xs text-slate-400">Top usernames with failed auth activity.</p>
+            </div>
+          </div>
+          <div class="h-80">
+            <canvas id="failedUsersChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div class="glass border border-slate-800 rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-lg font-semibold">Top Source IPs</h2>
+              <p class="text-xs text-slate-400">IPs generating the most events.</p>
+            </div>
+          </div>
+          <div class="h-80">
+            <canvas id="ipsChart"></canvas>
+          </div>
+        </div>
+
+        <div class="glass border border-slate-800 rounded-2xl p-4 overflow-hidden">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-lg font-semibold">Recent Security Events</h2>
+              <p class="text-xs text-slate-400">Newest logs in the selected time range.</p>
+            </div>
+          </div>
+          <div class="overflow-auto scrollbar max-h-80 rounded-xl border border-slate-800">
+            <table class="min-w-full text-sm">
+              <thead class="sticky top-0 bg-slate-900 text-slate-300">
+                <tr>
+                  <th class="text-left px-3 py-2">Timestamp</th>
+                  <th class="text-left px-3 py-2">Host</th>
+                  <th class="text-left px-3 py-2">User</th>
+                  <th class="text-left px-3 py-2">Source IP</th>
+                  <th class="text-left px-3 py-2">Level</th>
+                  <th class="text-left px-3 py-2">Message</th>
+                </tr>
+              </thead>
+              <tbody id="recentEvents" class="divide-y divide-slate-800 bg-slate-950/70"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass border border-slate-800 rounded-2xl p-4 md:p-5">
+        <h2 class="text-lg font-semibold">Build Notes for GitHub</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-sm text-slate-300">
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
+            <div class="font-semibold text-cyan-400 mb-2">1. Ingest</div>
+            <p>Ship Linux auth, system, and web logs into Elasticsearch using Filebeat.</p>
+          </div>
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
+            <div class="font-semibold text-cyan-400 mb-2">2. Visualize</div>
+            <p>Use this dashboard to show authentication spikes, top users, source IPs, and recent events.</p>
+          </div>
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
+            <div class="font-semibold text-cyan-400 mb-2">3. Detect</div>
+            <p>Add alert logic for repeated failures, sudo activity, and critical events.</p>
+          </div>
+        </div>
+      </section>
+
+      <div id="errorBox" class="hidden glass border border-red-900/70 rounded-2xl p-4 text-red-200"></div>
+    </main>
+  </div>
+
+  <script>
+    const els = {
+      statusPill: document.getElementById('statusPill'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      esUrl: document.getElementById('esUrl'),
+      indexPattern: document.getElementById('indexPattern'),
+      timeRange: document.getElementById('timeRange'),
+      apiKey: document.getElementById('apiKey'),
+      basicAuth: document.getElementById('basicAuth'),
+      autoRefresh: document.getElementById('autoRefresh'),
+      totalEvents: document.getElementById('totalEvents'),
+      failedAuthCount: document.getElementById('failedAuthCount'),
+      criticalCount: document.getElementById('criticalCount'),
+      uniqueUsers: document.getElementById('uniqueUsers'),
+      uniqueIps: document.getElementById('uniqueIps'),
+      recentEvents: document.getElementById('recentEvents'),
+      errorBox: document.getElementById('errorBox')
+    };
+
+    const state = {
+      charts: {},
+      timer: null,
+      lastLoaded: null
+    };
+
+    function setStatus(text, kind = 'idle') {
+      const map = {
+        idle: 'bg-slate-800 text-slate-300',
+        loading: 'bg-amber-500/20 text-amber-300',
+        ok: 'bg-emerald-500/20 text-emerald-300',
+        error: 'bg-red-500/20 text-red-300'
+      };
+      els.statusPill.className = `px-3 py-1 rounded-full text-xs font-semibold ${map[kind] || map.idle}`;
+      els.statusPill.textContent = text;
+    }
+
+    function showError(message) {
+      els.errorBox.classList.remove('hidden');
+      els.errorBox.textContent = message;
+    }
+
+    function clearError() {
+      els.errorBox.classList.add('hidden');
+      els.errorBox.textContent = '';
+    }
+
+    function timeRangeToQuery(range) {
+      const now = new Date();
+      const unit = range.slice(-1);
+      const value = parseInt(range.slice(0, -1), 10);
+      const ms = unit === 'h' ? value * 60 * 60 * 1000 : value * 24 * 60 * 60 * 1000;
+      const start = new Date(now.getTime() - ms).toISOString();
+      return { gte: start, lte: now.toISOString(), interval: ms <= 24 * 60 * 60 * 1000 ? '30m' : '6h' };
+    }
+
+    function authHeaders() {
+      const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      const apiKey = els.apiKey.value.trim();
+      const basicAuth = els.basicAuth.value.trim();
+      if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
+      else if (basicAuth) headers['Authorization'] = `Basic ${btoa(basicAuth)}`;
+      return headers;
+    }
+
+    async function esSearch(index, body) {
+      const base = els.esUrl.value.trim().replace(/\/$/, '');
+      const response = await fetch(`${base}/${index}/_search`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Elasticsearch error ${response.status}: ${text.slice(0, 250)}`);
+      }
+      return response.json();
+    }
+
+    function failedAuthQuery(range, interval) {
+      return {
+        size: 0,
+        track_total_hits: true,
+        query: {
+          bool: {
+            filter: [{ range: { '@timestamp': { gte: range.gte, lte: range.lte } } }],
+            should: [
+              { match_phrase: { message: 'Failed password' } },
+              { match_phrase: { message: 'authentication failure' } },
+              { term: { 'event.outcome': 'failure' } },
+              { term: { 'log.level': 'warning' } }
+            ],
+            minimum_should_match: 1
+          }
+        },
+        aggs: {
+          by_user: { terms: { field: 'user.name.keyword', size: 10, order: { _count: 'desc' } } },
+          by_ip: { terms: { field: 'source.ip', size: 10, order: { _count: 'desc' } } },
+          over_time: { date_histogram: { field: '@timestamp', fixed_interval: interval, min_doc_count: 0, extended_bounds: { min: range.gte, max: range.lte } } }
+        }
+      };
+    }
+
+    function criticalQuery(range, interval) {
+      return {
+        size: 0,
+        track_total_hits: true,
+        query: {
+          bool: {
+            filter: [{ range: { '@timestamp': { gte: range.gte, lte: range.lte } } }],
+            should: [
+              { term: { 'log.level': 'critical' } },
+              { term: { 'log.level': 'alert' } },
+              { term: { 'log.level': 'emergency' } },
+              { term: { 'event.severity': 1 } },
+              { term: { 'event.severity': 2 } }
+            ],
+            minimum_should_match: 1
+          }
+        },
+        aggs: {
+          by_host: { terms: { field: 'host.name.keyword', size: 10, order: { _count: 'desc' } } },
+          over_time: { date_histogram: { field: '@timestamp', fixed_interval: interval, min_doc_count: 0, extended_bounds: { min: range.gte, max: range.lte } } }
+        }
+      };
+    }
+
+    function allEventsQuery(range, interval) {
+      return {
+        size: 0,
+        track_total_hits: true,
+        query: {
+          range: { '@timestamp': { gte: range.gte, lte: range.lte } }
+        },
+        aggs: {
+          over_time: { date_histogram: { field: '@timestamp', fixed_interval: interval, min_doc_count: 0, extended_bounds: { min: range.gte, max: range.lte } } },
+          unique_users: { cardinality: { field: 'user.name.keyword' } },
+          unique_ips: { cardinality: { field: 'source.ip' } },
+          by_ip: { terms: { field: 'source.ip', size: 10, order: { _count: 'desc' } } }
+        }
+      };
+    }
+
+    function recentEventsQuery(range) {
+      return {
+        size: 10,
+        sort: [{ '@timestamp': { order: 'desc' } }],
+        query: { range: { '@timestamp': { gte: range.gte, lte: range.lte } } },
+        _source: ['@timestamp', 'message', 'host.name', 'user.name', 'source.ip', 'client.ip', 'log.level', 'event.outcome', 'event.severity']
+      };
+    }
+
+    function getBucketLabels(buckets) {
+      return buckets.map(b => b.key_as_string || b.key).map(v => String(v).replace('T', ' ').replace('.000Z', ''));
+    }
+
+    function getBucketCounts(buckets) {
+      return buckets.map(b => b.doc_count || 0);
+    }
+
+    function renderChart(id, type, labels, data, label) {
+      const ctx = document.getElementById(id);
+      if (state.charts[id]) state.charts[id].destroy();
+      state.charts[id] = new Chart(ctx, {
+        type,
+        data: { labels, datasets: [{ label, data, tension: 0.35, fill: type === 'line', borderWidth: 2 }] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#cbd5e1' } }
+          },
+          scales: {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.1)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.1)' } }
+          }
+        }
+      });
+    }
+
+    function topNChartData(agg, fallbackLabel = 'Count') {
+      const buckets = agg?.buckets || [];
+      return {
+        labels: buckets.map(b => b.key ?? 'unknown'),
+        data: buckets.map(b => b.doc_count ?? 0),
+        label: fallbackLabel
+      };
+    }
+
+    function formatTimestamp(value) {
+      try { return new Date(value).toLocaleString(); }
+      catch { return value || '-'; }
+    }
+
+    function truncate(text, n = 90) {
+      const s = String(text ?? '');
+      return s.length > n ? s.slice(0, n - 1) + '…' : s;
+    }
+
+    function pickSourceIp(src) {
+      return src?.source?.ip || src?.client?.ip || '-';
+    }
+
+    function pickUser(src) {
+      return src?.user?.name || '-';
+    }
+
+    function pickHost(src) {
+      return src?.host?.name || '-';
+    }
+
+    function pickLevel(src) {
+      return src?.log?.level || src?.event?.severity || src?.event?.outcome || '-';
+    }
+
+    async function loadDashboard() {
+      clearError();
+      setStatus('Loading…', 'loading');
+      const index = els.indexPattern.value.trim();
+      const range = timeRangeToQuery(els.timeRange.value);
+      const interval = range.interval;
+
+      try {
+        const [allEvents, failedAuth, critical, recent] = await Promise.all([
+          esSearch(index, allEventsQuery(range, interval)),
+          esSearch(index, failedAuthQuery(range, interval)),
+          esSearch(index, criticalQuery(range, interval)),
+          esSearch(index, recentEventsQuery(range))
+        ]);
+
+        els.totalEvents.textContent = allEvents.hits?.total?.value?.toLocaleString?.() ?? allEvents.hits?.total?.value ?? '0';
+        els.failedAuthCount.textContent = failedAuth.hits?.total?.value?.toLocaleString?.() ?? failedAuth.hits?.total?.value ?? '0';
+        els.criticalCount.textContent = critical.hits?.total?.value?.toLocaleString?.() ?? critical.hits?.total?.value ?? '0';
+        els.uniqueUsers.textContent = allEvents.aggregations?.unique_users?.value?.toLocaleString?.() ?? '0';
+        els.uniqueIps.textContent = allEvents.aggregations?.unique_ips?.value?.toLocaleString?.() ?? '0';
+
+        const timelineLabels = getBucketLabels(allEvents.aggregations?.over_time?.buckets || []);
+        const timelineData = getBucketCounts(allEvents.aggregations?.over_time?.buckets || []);
+        renderChart('timelineChart', 'line', timelineLabels, timelineData, 'Events');
+
+        const failedUser = topNChartData(failedAuth.aggregations?.by_user, 'Failed logins');
+        renderChart('failedUsersChart', 'bar', failedUser.labels, failedUser.data, failedUser.label);
+
+        const topIps = topNChartData(allEvents.aggregations?.by_ip || failedAuth.aggregations?.by_ip, 'Events');
+        renderChart('ipsChart', 'bar', topIps.labels, topIps.data, topIps.label);
+
+        const rows = recent.hits?.hits || [];
+        els.recentEvents.innerHTML = rows.length
+          ? rows.map(hit => {
+              const src = hit._source || {};
+              const msg = src.message || src.event?.action || src.event?.dataset || JSON.stringify(src);
+              return `
+                <tr class="hover:bg-slate-900/70 align-top">
+                  <td class="px-3 py-2 whitespace-nowrap text-slate-400">${formatTimestamp(src['@timestamp'])}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">${truncate(pickHost(src), 28)}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">${truncate(pickUser(src), 20)}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">${truncate(pickSourceIp(src), 18)}</td>
+                  <td class="px-3 py-2 whitespace-nowrap"><span class="px-2 py-1 rounded-full bg-slate-800 text-slate-300 text-xs">${truncate(pickLevel(src), 12)}</span></td>
+                  <td class="px-3 py-2 text-slate-300">${truncate(msg, 110)}</td>
+                </tr>`;
+            }).join('')
+          : `<tr><td class="px-3 py-4 text-slate-500" colspan="6">No events found for the current selection.</td></tr>`;
+
+        state.lastLoaded = new Date();
+        setStatus(`Updated ${state.lastLoaded.toLocaleTimeString()}`, 'ok');
+      } catch (err) {
+        console.error(err);
+        setStatus('Error', 'error');
+        showError(`Could not load dashboard. ${err.message}\n\nCommon fixes: confirm Elasticsearch is reachable, allow CORS from this page, and make sure the index pattern matches your data (for example, filebeat-* or logs-*).`);
+      }
+    }
+
+    function startAutoRefresh() {
+      if (state.timer) clearInterval(state.timer);
+      if (els.autoRefresh.checked) {
+        state.timer = setInterval(loadDashboard, 60000);
+      }
+    }
+
+    els.refreshBtn.addEventListener('click', async () => {
+      await loadDashboard();
+    });
+
+    els.autoRefresh.addEventListener('change', startAutoRefresh);
+    [els.esUrl, els.indexPattern, els.timeRange, els.apiKey, els.basicAuth].forEach(el => {
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') loadDashboard(); });
+      el.addEventListener('change', () => {
+        if (el === els.timeRange || el === els.indexPattern) loadDashboard();
+      });
+    });
+
+    loadDashboard();
+    startAutoRefresh();
+  </script>
+</body>
+</html>
